@@ -562,11 +562,24 @@
 (define (moka-restore-native-statusline!)
   (statusline))
 
+;; re-create the statusline component, the fork kills it when hx . is run
+(define (moka-ensure-component!)
+  (set! *moka-enabled?* #t)
+  (pop-last-component-by-name! "moka")
+  (push-component!
+   (new-component! "moka" #f moka-render-bar (hash "cursor" moka-cursor-handler))))
+
+;; re-arm on a timer so the statusline revives by itself
+(define (moka-tick!)
+  (when *moka-enabled?*
+    (moka-ensure-component!)
+    (enqueue-thread-local-callback-with-delay 3000 moka-tick!)))
+
 (define (moka-register-hooks!)
   (unless *moka-hooks-registered?*
-    (register-hook 'document-saved (lambda (doc-id) (moka-refresh-git!)))
-    (register-hook 'document-opened (lambda (doc-id) (moka-refresh-git!)))
-    (register-hook 'terminal-focus-gained (lambda () (moka-refresh-git!)))
+    (register-hook 'document-saved (lambda (doc-id) (moka-ensure-component!) (moka-refresh-git!)))
+    (register-hook 'document-opened (lambda (doc-id) (moka-ensure-component!) (moka-refresh-git!)))
+    (register-hook 'terminal-focus-gained (lambda () (moka-ensure-component!) (moka-refresh-git!)))
     (set! *moka-hooks-registered?* #t)))
 
 (define (moka-enable!)
@@ -574,8 +587,8 @@
     (moka-blank-native-statusline!)
     (moka-register-hooks!)
     (moka-refresh-git!)
-    (push-component!
-     (new-component! "moka" #f moka-render-bar (hash "cursor" moka-cursor-handler)))
+    (moka-ensure-component!)
+    (enqueue-thread-local-callback moka-tick!)
     (set! *moka-enabled?* #t)))
 
 (define (moka-disable!)
@@ -756,10 +769,29 @@
         event-result/consume)
       event-result/ignore))
 
+;; re-create the bufferline component, the fork kills it when hx . is run
+(define (moka-bufferline-ensure-component!)
+  (set! *moka-bufferline-enabled?* #t)
+  (pop-last-component-by-name! "moka-bufferline")
+  (push-component!
+   (new-component! "moka-bufferline"
+                   #f
+                   moka-render-bufferline
+                   (hash "cursor" moka-bufferline-cursor-handler
+                         "handle_event" moka-bufferline-handle-event))))
+
+;; re-arm on a timer so the bufferline revives by itself
+(define (moka-bufferline-tick!)
+  (when *moka-bufferline-enabled?*
+    (moka-bufferline-ensure-component!)
+    (enqueue-thread-local-callback-with-delay 3000 moka-bufferline-tick!)))
+
 (define (moka-bufferline-register-hooks!)
   (unless *moka-bufferline-hooks-registered?*
-    (register-hook 'document-opened (lambda (doc-id) (moka-bufferline-sync-clip!)))
-    (register-hook 'document-closed (lambda (closed-event) (moka-bufferline-sync-clip!)))
+    (register-hook 'document-opened
+                   (lambda (doc-id) (moka-bufferline-ensure-component!) (moka-bufferline-sync-clip!)))
+    (register-hook 'document-closed
+                   (lambda (closed-event) (moka-bufferline-ensure-component!) (moka-bufferline-sync-clip!)))
     (set! *moka-bufferline-hooks-registered?* #t)))
 
 ;; deactive helix default bufferline
@@ -771,12 +803,8 @@
     (moka-bufferline-blank-native!)
     (moka-bufferline-register-hooks!)
     (moka-bufferline-sync-clip!)
-    (push-component!
-     (new-component! "moka-bufferline"
-                      #f
-                      moka-render-bufferline
-                      (hash "cursor" moka-bufferline-cursor-handler
-                            "handle_event" moka-bufferline-handle-event)))
+    (moka-bufferline-ensure-component!)
+    (enqueue-thread-local-callback moka-bufferline-tick!)
     (set! *moka-bufferline-enabled?* #t)))
 
 (define (moka-bufferline-disable!)
