@@ -44,7 +44,6 @@ forge pkg install --git https://github.com/Ra77a3l3-jar/moka.hx.git
 | `'file` | File icon + git status + name |
 | `'git-branch` | Current branch |
 | `'lsp` | Active LSP client name(s) |
-| `'diagnostics` | Hint/info/warning/error counts, colored from the theme |
 | `'position` | `line:column` |
 | `'spacer` / `'separator` | Blank space / `\|` |
 
