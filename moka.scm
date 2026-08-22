@@ -112,6 +112,33 @@
 (define (moka-base-style)
   (if *moka-transparent?* (theme-scope-ref "ui.background") (theme-scope-ref "ui.statusline")))
 
+;; forest snacks sidebar accessors, resolved once forest is loaded
+(define *moka-forest-geom* 'unresolved)
+
+(define (moka-resolve-forest!)
+  (when (equal? *moka-forest-geom* 'unresolved)
+    (let ([a (with-handler (lambda (_) #f) (eval 'forest-snacks-active?))]
+          [s (with-handler (lambda (_) #f) (eval 'forest-snacks-side))]
+          [w (with-handler (lambda (_) #f) (eval 'forest-snacks-width))])
+      (set! *moka-forest-geom*
+            (if (and a s w) (list a s w) 'none)))))
+
+;; (x0 width) of the text buffer area, full row when forest snacks is closed
+(define (moka-bar-clip width)
+  (moka-resolve-forest!)
+  (define g *moka-forest-geom*)
+  (define fallback (list 0 width))
+  (cond
+    [(or (equal? g 'unresolved) (equal? g 'none)) fallback]
+    [else
+     (with-handler
+       (lambda (_) fallback)
+       (if (and ((car g)) (equal? ((cadr g)) 'left))
+           (list ((caddr g)) (max 1 (- width ((caddr g)))))
+           (if (and ((car g)) (equal? ((cadr g)) 'right))
+               (list 0 (max 1 (- width ((caddr g)))))
+               fallback)))]))
+
 ;; 'mode prefers #:mode-colors, then theme colors, then the fallback hash
 (define (moka-default-bg content)
   (cond
@@ -505,24 +532,29 @@
           (if (null? (cdr secs)) next-cx (loop (cdr secs) (+ next-cx (MokaSection-gap sec))))))))
 
 (define (moka-render-bar state rect frame)
-  (define width (area-width rect))
-  (define height (area-height rect))
-  ;; clamped so offset 0 can't land off-screen
-  (define y (max 0 (min (- height 1) (- height *moka-row-offset*))))
-  (define base-style (moka-base-style))
-  ;; the blanked native statusline still paints its bg
-  ;; remove the row when the statusline is displayed on another line
-  (define native-y (- height 2))
-  (when (and (>= native-y 0) (not (= y native-y)))
-    (buffer/clear-with frame (area 0 native-y width 1) base-style))
-  (buffer/clear-with frame (area 0 y width 1) base-style)
-  (moka-draw-align! frame 0 y 'left base-style)
-  (define center-width (moka-align-width 'center))
-  (when (> center-width 0)
-    (moka-draw-align! frame (quotient (- width center-width) 2) y 'center base-style))
-  (define right-width (moka-align-width 'right))
-  (when (> right-width 0)
-    (moka-draw-align! frame (- width right-width) y 'right base-style)))
+  (with-handler
+    (lambda (_) void)
+    (define width (area-width rect))
+    (define height (area-height rect))
+    (define clip (moka-bar-clip width))
+    (define x0 (car clip))
+    (define bw (cadr clip))
+    ;; clamped so offset 0 can't land off-screen
+    (define y (max 0 (min (- height 1) (- height *moka-row-offset*))))
+    (define base-style (moka-base-style))
+    ;; the blanked native statusline still paints its bg
+    ;; remove the row when the statusline is displayed on another line
+    (define native-y (- height 2))
+    (when (and (>= native-y 0) (not (= y native-y)))
+      (buffer/clear-with frame (area x0 native-y bw 1) base-style))
+    (buffer/clear-with frame (area x0 y bw 1) base-style)
+    (moka-draw-align! frame x0 y 'left base-style)
+    (define center-width (moka-align-width 'center))
+    (when (> center-width 0)
+      (moka-draw-align! frame (+ x0 (quotient (- bw center-width) 2)) y 'center base-style))
+    (define right-width (moka-align-width 'right))
+    (when (> right-width 0)
+      (moka-draw-align! frame (- (+ x0 bw) right-width) y 'right base-style))))
 
 (define (moka-cursor-handler state rect) #f)
 
@@ -532,24 +564,18 @@
 (define (moka-restore-native-statusline!)
   (statusline))
 
-;; re-create the statusline component, the fork kills it when hx . is run
+;; add the statusline to the screen once. popups remove only themselves
+;; when they close, so nothing here can remove the bar
 (define (moka-ensure-component!)
   (set! *moka-enabled?* #t)
-  (pop-last-component-by-name! "moka")
   (push-component!
    (new-component! "moka" #f moka-render-bar (hash "cursor" moka-cursor-handler))))
 
-;; re-arm on a timer so the statusline revives by itself
-(define (moka-tick!)
-  (when *moka-enabled?*
-    (moka-ensure-component!)
-    (enqueue-thread-local-callback-with-delay 3000 moka-tick!)))
-
 (define (moka-register-hooks!)
   (unless *moka-hooks-registered?*
-    (register-hook 'document-saved (lambda (doc-id) (moka-ensure-component!) (moka-refresh-git!)))
-    (register-hook 'document-opened (lambda (doc-id) (moka-ensure-component!) (moka-refresh-git!)))
-    (register-hook 'terminal-focus-gained (lambda () (moka-ensure-component!) (moka-refresh-git!)))
+    (register-hook 'document-saved (lambda (doc-id) (moka-refresh-git!)))
+    (register-hook 'document-opened (lambda (doc-id) (moka-refresh-git!)))
+    (register-hook 'terminal-focus-gained (lambda () (moka-refresh-git!)))
     (set! *moka-hooks-registered?* #t)))
 
 (define (moka-enable!)
@@ -558,7 +584,6 @@
     (moka-register-hooks!)
     (moka-refresh-git!)
     (moka-ensure-component!)
-    (enqueue-thread-local-callback moka-tick!)
     (set! *moka-enabled?* #t)))
 
 (define (moka-disable!)
@@ -696,33 +721,44 @@
 (define (moka-bufferline-sync-clip!)
   (set-editor-clip-top! (if (moka-bufferline-visible?) (+ *moka-bufferline-row-offset* 1) 0)))
 
-;; draws nothing if bufferline set to hidden
 (define (moka-render-bufferline state rect frame)
-  (when (moka-bufferline-visible?)
+  (with-handler
+    (lambda (_) void)
+    (when (moka-bufferline-visible?)
     (define width (area-width rect))
+    (define clip (moka-bar-clip width))
+    (define x0 (car clip))
+    (define bw (cadr clip))
     (define y *moka-bufferline-row-offset*)
     (define base-style (moka-base-style))
-    (buffer/clear-with frame (area 0 y width 1) base-style)
+    (buffer/clear-with frame (area x0 y bw 1) base-style)
     (define focused (moka-bufferline-focused-doc-id))
-    (let loop ([docs (moka-bufferline-docs)] [cx 0] [tabs '()])
-      (if (null? docs)
+    (let loop ([docs (moka-bufferline-docs)] [cx x0] [tabs '()])
+      (if (or (null? docs) (>= cx (+ x0 bw)))
           (set! *moka-bufferline-tabs* (reverse tabs))
           (let* ([doc-id (car docs)]
                  [style (moka-bufferline-style-for (equal? doc-id focused))]
                  [fragments (moka-bufferline-doc-fragments doc-id)]
-                 [start-x cx]
                  [tab-bg (moka-bufferline-tab-bg style)]
-                 [end-x
-                  (moka-draw-styled! frame
-                                      cx
-                                      y
-                                      fragments
-                                      tab-bg
-                                      (moka-bufferline-tab-bubble? style)
-                                      (moka-bufferline-tab-fg style)
-                                      (moka-bufferline-tab-colored-icons? tab-bg)
-                                      base-style)])
-            (loop (cdr docs) (+ end-x *moka-bufferline-gap*) (cons (list doc-id start-x end-x) tabs)))))))
+                 [tab-bubble? (moka-bufferline-tab-bubble? style)]
+                 [tab-width (moka-styled-width fragments tab-bg tab-bubble?)]
+                 [start-x cx])
+            ;; tabs stop at the sidebar edge like the rest of the bar
+            (if (> (+ cx tab-width) (+ x0 bw))
+                (set! *moka-bufferline-tabs* (reverse tabs))
+                (let ([end-x
+                       (moka-draw-styled! frame
+                                           cx
+                                           y
+                                           fragments
+                                           tab-bg
+                                           tab-bubble?
+                                           (moka-bufferline-tab-fg style)
+                                           (moka-bufferline-tab-colored-icons? tab-bg)
+                                           base-style)])
+                  (loop (cdr docs)
+                        (+ end-x *moka-bufferline-gap*)
+                        (cons (list doc-id start-x end-x) tabs))))))))))
 
 (define (moka-bufferline-cursor-handler state rect) #f)
 
@@ -739,10 +775,10 @@
         event-result/consume)
       event-result/ignore))
 
-;; re-create the bufferline component, the fork kills it when hx . is run
+;; add the bufferline to the screen once. popups remove only themselves
+;; when they close, so nothing here can remove the bar
 (define (moka-bufferline-ensure-component!)
   (set! *moka-bufferline-enabled?* #t)
-  (pop-last-component-by-name! "moka-bufferline")
   (push-component!
    (new-component! "moka-bufferline"
                    #f
@@ -750,18 +786,12 @@
                    (hash "cursor" moka-bufferline-cursor-handler
                          "handle_event" moka-bufferline-handle-event))))
 
-;; re-arm on a timer so the bufferline revives by itself
-(define (moka-bufferline-tick!)
-  (when *moka-bufferline-enabled?*
-    (moka-bufferline-ensure-component!)
-    (enqueue-thread-local-callback-with-delay 3000 moka-bufferline-tick!)))
-
 (define (moka-bufferline-register-hooks!)
   (unless *moka-bufferline-hooks-registered?*
     (register-hook 'document-opened
-                   (lambda (doc-id) (moka-bufferline-ensure-component!) (moka-bufferline-sync-clip!)))
+                   (lambda (doc-id) (moka-bufferline-sync-clip!)))
     (register-hook 'document-closed
-                   (lambda (closed-event) (moka-bufferline-ensure-component!) (moka-bufferline-sync-clip!)))
+                   (lambda (closed-event) (moka-bufferline-sync-clip!)))
     (set! *moka-bufferline-hooks-registered?* #t)))
 
 ;; deactive helix default bufferline
@@ -774,7 +804,6 @@
     (moka-bufferline-register-hooks!)
     (moka-bufferline-sync-clip!)
     (moka-bufferline-ensure-component!)
-    (enqueue-thread-local-callback moka-bufferline-tick!)
     (set! *moka-bufferline-enabled?* #t)))
 
 (define (moka-bufferline-disable!)
