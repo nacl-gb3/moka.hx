@@ -65,6 +65,7 @@ Heads up: `'mode` and `'git-branch` come with a background by default. If you wa
 | `'primary-selection-length` | character count of the primary selection |
 | `'position-percentage` | cursor position as `%` through the file |
 | `'register` | selected register (`reg=x`), blank if none |
+| `'diagnostics` | error/warning/info/hint counts for the current file |
 
 Not built in: `workspace-diagnostics` and `spinner`/`file-encoding`/`file-line-ending`/`file-indent-style`/`read-only-indicator` (no Steel bindings exist for these yet).
 
