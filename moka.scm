@@ -24,7 +24,8 @@
          moka-current-dirty?
          moka-current-doc-id
          moka-bufferline-move-left!
-         moka-bufferline-move-right!)
+         moka-bufferline-move-right!
+         moka-set-forest-clip!)
 
 (struct MokaSegment (content fg bg bubble? gap colored-icons?))
 (struct MokaSection (align segments gap))
@@ -112,32 +113,23 @@
 (define (moka-base-style)
   (if *moka-transparent?* (theme-scope-ref "ui.background") (theme-scope-ref "ui.statusline")))
 
-;; forest snacks sidebar accessors, resolved once forest is loaded
-(define *moka-forest-geom* 'unresolved)
+(define *moka-forest-side* #f)
+(define *moka-forest-width* 0)
 
-(define (moka-resolve-forest!)
-  (when (equal? *moka-forest-geom* 'unresolved)
-    (let ([a (with-handler (lambda (_) #f) (eval 'forest-snacks-active?))]
-          [s (with-handler (lambda (_) #f) (eval 'forest-snacks-side))]
-          [w (with-handler (lambda (_) #f) (eval 'forest-snacks-width))])
-      (set! *moka-forest-geom*
-            (if (and a s w) (list a s w) 'none)))))
+;; forest calls this when the snacks sidebar opens, moves, or closes
+(define (moka-set-forest-clip! side width)
+  (set! *moka-forest-side* side)
+  (set! *moka-forest-width* (if (number? width) width 0)))
 
-;; (x0 width) of the text buffer area, full row when forest snacks is closed
+;; x0 and width of the text buffer, full row when forest snacks is closed
 (define (moka-bar-clip width)
-  (moka-resolve-forest!)
-  (define g *moka-forest-geom*)
-  (define fallback (list 0 width))
-  (cond
-    [(or (equal? g 'unresolved) (equal? g 'none)) fallback]
-    [else
-     (with-handler
-       (lambda (_) fallback)
-       (if (and ((car g)) (equal? ((cadr g)) 'left))
-           (list ((caddr g)) (max 1 (- width ((caddr g)))))
-           (if (and ((car g)) (equal? ((cadr g)) 'right))
-               (list 0 (max 1 (- width ((caddr g)))))
-               fallback)))]))
+  (if (and *moka-forest-side* (number? *moka-forest-width*) (> *moka-forest-width* 0))
+      (if (equal? *moka-forest-side* 'left)
+          (list *moka-forest-width* (max 1 (- width *moka-forest-width*)))
+          (if (equal? *moka-forest-side* 'right)
+              (list 0 (max 1 (- width *moka-forest-width*)))
+              (list 0 width)))
+      (list 0 width)))
 
 ;; 'mode prefers #:mode-colors, then theme colors, then the fallback hash
 (define (moka-default-bg content)
