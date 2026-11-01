@@ -55,7 +55,7 @@ Heads up: `'mode` and `'git-branch` come with a background by default. If you wa
 | `'git-branch` | current branch (hidden outside a repo) |
 | `'lsp` | attached LSP client name(s) (hidden if none) |
 | `'position` | `line:column` |
-| `'spacer` / `'separator` | a blank space / a `\|` |
+| `'spacer` / `'separator` / `left-sep` / `right-sep` | a blank space / a `\|` | a `` | a ``
 | `'file-absolute-path` | full path of the open file |
 | `'file-base-name` | filename without its extension |
 | `'file-modification-indicator` | `[+]` if the buffer has unsaved changes |

@@ -27,16 +27,17 @@
          moka-bufferline-move-right!
          moka-set-forest-clip!)
 
-(struct MokaSegment (content fg bg bubble? gap colored-icons?))
+(struct MokaSegment (content fg bg bubble? pad? gap colored-icons?))
 (struct MokaSection (align segments gap))
 
 (define (moka-segment content
                       #:fg [fg 'auto]
                       #:bg [bg 'auto]
                       #:bubble? [bubble? 'auto]
+                      #:pad? [pad? 'auto]
                       #:gap [gap 2]
                       #:colored-icons? [colored-icons? 'auto])
-  (MokaSegment content fg bg bubble? gap colored-icons?))
+  (MokaSegment content fg bg bubble? pad? gap colored-icons?))
 
 (define (moka-section segments #:align [align 'left] #:gap [gap 2])
   (MokaSection align segments gap))
@@ -68,10 +69,14 @@
 
 (define *moka-colors* *moka-default-colors*)
 
+(define *moka-fill-spacer* "█")
 (define *moka-pill-left* "")
 (define *moka-pill-right* "")
 (define *moka-angle-left* "")
 (define *moka-angle-right* "")
+;; symbols found from Lualine repo
+(define *moka-angle-left-empty* "")
+(define *moka-angle-right-empty* "")
 
 (define *moka-mode-insert* (string->editor-mode "insert"))
 (define *moka-mode-select* (string->editor-mode "select"))
@@ -146,14 +151,21 @@
               (list 0 width)))
       (list 0 width)))
 
+(define hardcoded-garbage-color "#414868")
+(define (hardcoded-garbage-bg)
+  (define git-branch-out (moka-git-branch-content))
+  (if (or (equal? git-branch-out "")) #f hardcoded-garbage-color))
+
 ;; 'mode prefers #:mode-colors, then theme colors, then the fallback hash
 (define (moka-default-bg content)
+  (define git-branch-out (moka-git-branch-content))
   (cond
     [(equal? content 'mode)
      (or (moka-mode-color 'bg)
          (style->bg (theme-scope-ref (moka-mode-scope)))
          (hash-try-get *moka-colors* 'mode-fallback-bg))]
-    ;; CUSTOM CHANGE TO EMULATE TOKYO NIGHT NVIM
+    ;; CUSTOM CHANGE TO EMULATE TOKYO NIGHT NVIM (LUALINE)
+    [(equal? content 'hardcoded-garbage) (hardcoded-garbage-bg)]
     [(and (equal? content 'position) *moka-mode-match?*)
      (or (moka-mode-color 'bg)
          (style->bg (theme-scope-ref (moka-mode-scope)))
@@ -175,8 +187,21 @@
     ;; if mode match is disabled, use the default logic
     [(equal? content 'git-branch) (hash-try-get *moka-colors* 'git-branch-fg)]
     [(equal? content 'lsp) (hash-try-get *moka-colors* 'lsp)]
-    ;; CUSTOM CHANGE TO EMULATE TOKYO NIGHT NVIM
-    [(and (equal? content 'position-percentage) *moka-mode-match?*)
+    ;; CUSTOM CHANGE TO EMULATE TOKYO NIGHT NVIM (includes hardcoded garbage)
+    [(and (or (equal? content 'position-percentage)
+              (equal? content 'diagnostics)
+              (equal? content 'selections)
+              (equal? content 'separator)
+              (equal? content 'left-sep)
+              (equal? content 'right-sep)
+              (equal? content 'full-left-sep)
+              (equal? content 'full-right-sep)
+              (equal? content 'cond-sep)
+              (equal? content 'cond-left-sep)
+              (equal? content 'cond-right-sep)
+              (equal? content 'cond-full-left-sep)
+              (equal? content 'cond-full-right-sep)
+              (equal? content 'hardcoded-garbage)))
      (or (moka-mode-color 'bg)
          (style->bg (theme-scope-ref (moka-mode-scope)))
          (hash-try-get *moka-colors* 'mode-fallback-bg))]
@@ -194,11 +219,36 @@
       (glyph-hex->color value)
       value))
 
+(define (cond-bubble bubble?)
+  ;; TODO: figure out how to not shamelessly hard code this?
+  (define git-branch-out (moka-git-branch-content))
+  (define diagnostic-out (moka-diagnostics-content))
+  (if (or (equal? git-branch-out "") (equal? diagnostic-out ""))
+      (cond
+        [(or (equal? bubble? 'cond-left-pilled) (equal? bubble? 'cond-right-pilled))
+         (cons *moka-pill-left* *moka-pill-right*)]
+        [(or (equal? bubble? 'cond-left-angled) (equal? bubble? 'cond-right-angled))
+         (cons *moka-angle-left* *moka-angle-right*)])
+      (cond
+        [(equal? bubble? 'cond-left-pilled) (cons *moka-pill-left* "")]
+        [(equal? bubble? 'cond-right-pilled) (cons "" *moka-pill-right*)]
+        [(equal? bubble? 'cond-left-angled) (cons *moka-angle-left* "")]
+        [(equal? bubble? 'cond-right-angled) (cons "" *moka-angle-right*)])))
+
 (define (moka-caps-for bg bubble?)
   (cond
     [(not bg) #f]
     [(equal? bubble? #t) (cons *moka-pill-left* *moka-pill-right*)]
+    [(equal? bubble? 'left-pilled) (cons *moka-pill-left* "")]
+    [(equal? bubble? 'right-pilled) (cons "" *moka-pill-right*)]
     [(equal? bubble? 'angled) (cons *moka-angle-left* *moka-angle-right*)]
+    [(equal? bubble? 'left-angled) (cons *moka-angle-left* "")]
+    [(equal? bubble? 'right-angled) (cons "" *moka-angle-right*)]
+    [(or (equal? bubble? 'cond-left-pilled)
+         (equal? bubble? 'cond-right-pilled)
+         (equal? bubble? 'cond-left-angled)
+         (equal? bubble? 'cond-right-angled))
+     (cond-bubble bubble?)]
     [else #f]))
 
 (define (moka-runs-for fragments bg fallback-fg colored?)
@@ -210,16 +260,20 @@
 (define (moka-fragments-text fragments)
   (string-join (map car fragments) ""))
 
-(define (moka-pad-fragments fragments bg)
-  (if bg
+(define (moka-pad-fragments fragments bg pad?)
+  (if (and bg pad?)
       (append (list (cons " " #f)) fragments (list (cons " " #f)))
       fragments))
 
-(define (moka-styled-width fragments bg bubble?)
-  (+ (string-length (moka-fragments-text (moka-pad-fragments fragments bg)))
-     (if (moka-caps-for bg bubble?) 2 0)))
+(define (moka-styled-width fragments bg bubble? pad?)
+  (define caps (moka-caps-for bg bubble?))
+  (+ (string-length (moka-fragments-text (moka-pad-fragments fragments bg pad?)))
+     (cond
+       [(not caps) 0]
+       [(or (equal? (car caps) "") (equal? (cdr caps) "")) 1]
+       [else 2])))
 
-(define (moka-draw-styled! frame x y fragments bg bubble? fallback-fg colored? base-style)
+(define (moka-draw-styled! frame x y fragments bg bubble? pad? fallback-fg colored? base-style)
   (define bg-style
     (if bg
         (style-bg base-style (moka-to-color bg))
@@ -230,13 +284,13 @@
         (style-fg base-style (moka-to-color bg))
         base-style))
   (define start-x
-    (if caps
+    (if (and caps (not (equal? (car caps) "")))
         (begin
           (frame-set-string! frame x y (car caps) cap-style)
           (+ x 1))
         x))
   (define end-x
-    (let loop ([runs (moka-runs-for (moka-pad-fragments fragments bg) bg fallback-fg colored?)]
+    (let loop ([runs (moka-runs-for (moka-pad-fragments fragments bg pad?) bg fallback-fg colored?)]
                [cx start-x])
       (if (null? runs)
           cx
@@ -248,7 +302,7 @@
                                 bg-style)])
             (frame-set-string! frame cx y text run-style)
             (loop (cdr runs) (+ cx (string-length text)))))))
-  (if caps
+  (if (and caps (not (equal? (cdr caps) "")))
       (begin
         (frame-set-string! frame end-x y (cdr caps) cap-style)
         (+ end-x 1))
@@ -267,9 +321,31 @@
     [(equal? content 'git-branch) #t]
     [else #f]))
 
+;; no padding for separator (it's already padding)
+(define (moka-default-pad? content)
+  (cond
+    [(equal? content 'spacing) #f]
+    [(equal? content 'separator) #f]
+    [(equal? content 'left-sep) #f]
+    [(equal? content 'right-sep) #f]
+    [(equal? content 'full-left-sep) #f]
+    [(equal? content 'full-right-sep) #f]
+    [(equal? content 'cond-sep) #f]
+    [(equal? content 'cond-left-sep) #f]
+    [(equal? content 'cond-right-sep) #f]
+    [(equal? content 'cond-full-left-sep) #f]
+    [(equal? content 'cond-full-right-sep) #f]
+    [(equal? content 'hardcoded-garbage) #f]
+    [(equal? content 'hardcoded-right-arrow) #f]
+    [else #t]))
+
 (define (moka-segment-bubble? segment)
   (moka-resolve (MokaSegment-bubble? segment)
                 (lambda () (moka-default-bubble? (MokaSegment-content segment)))))
+
+(define (moka-segment-pad? segment)
+  (moka-resolve (MokaSegment-pad? segment)
+                (lambda () (moka-default-pad? (MokaSegment-content segment)))))
 
 ;; auto makes icon colored only on transparent background else have fg color
 (define (moka-segment-colored-icons? segment bg)
@@ -389,7 +465,8 @@
       ""
       (let* ([name (file-name path)]
              [status (moka-current-git-status path)]
-             [base (list (cons (glyph-icon name) (glyph-color name)) (cons " " #f))]
+             ; [base (list (cons (glyph-icon name) (glyph-color name)) (cons " " #f))]
+             [base (list (cons "" #f))]
              [with-status (if status
                               (append base
                                       (list (cons (glyph-git-icon status) (glyph-git-color status))
@@ -415,6 +492,58 @@
   " ")
 (define (moka-separator-content)
   "|")
+(define (moka-arrowed-separator left)
+  (cond
+    [left *moka-angle-left-empty*]
+    [else *moka-angle-right-empty*]))
+(define (moka-full-arrowed-separator left)
+  (cond
+    [left *moka-angle-left*]
+    [else *moka-angle-right*]))
+(define (moka-left-sep-content)
+  (moka-arrowed-separator #t))
+(define (moka-right-sep-content)
+  (moka-arrowed-separator #f))
+(define (moka-full-left-sep-content)
+  (moka-full-arrowed-separator #t))
+(define (moka-full-right-sep-content)
+  (moka-full-arrowed-separator #f))
+
+(define (moka-conditional-separator handler)
+  ;; TODO: figure out how to not hard code this?
+  (define git-branch-out (moka-git-branch-content))
+  (define diagnostic-out (moka-diagnostics-content))
+  (if (or (equal? git-branch-out "") (equal? diagnostic-out ""))
+      ""
+      (handler)))
+
+(define (moka-hardcoded-garbage-sep handler)
+  (define git-branch-out (moka-git-branch-content))
+  (define diagnostic-out (moka-diagnostics-content))
+  (if (and (equal? git-branch-out "") (equal? diagnostic-out ""))
+      ""
+      (handler)))
+
+(define (moka-cond-space-content)
+  (moka-conditional-separator moka-spacer-content))
+
+(define (moka-cond-sep-content)
+  (moka-conditional-separator moka-separator-content))
+
+(define (moka-cond-left-sep-content)
+  (moka-conditional-separator moka-left-sep-content))
+
+(define (moka-cond-right-sep-content)
+  (moka-conditional-separator moka-right-sep-content))
+
+(define (moka-cond-full-left-sep-content)
+  (moka-conditional-separator moka-full-left-sep-content))
+
+(define (moka-cond-full-right-sep-content)
+  (moka-conditional-separator moka-full-right-sep-content))
+
+(define (moka-hardcoded-right-arrow-garbage)
+  (moka-hardcoded-garbage-sep moka-full-right-sep-content))
 
 (define (moka-file-absolute-path-content)
   (define path (moka-current-path))
@@ -455,11 +584,17 @@
             ""))))
 
 (define (moka-file-type-content)
+  (define path (moka-current-path))
+  (define name
+    (if path
+        (file-name path)
+        ""))
   (define doc (moka-current-doc-id))
   (define lang (and doc (with-handler (lambda (_) #f) (editor-document->language doc))))
   (if lang
-      (string-append " " lang " ")
-      " text "))
+      (let ([base (list (cons (glyph-icon name) (glyph-color name)) (cons " " #f))])
+        (append base (list (cons lang #f) (cons "" #f))))
+      " text"))
 
 (define (moka-selections-content)
   (define sel (with-handler (lambda (_) #f) (current-selection-object)))
@@ -467,12 +602,12 @@
       ""
       (let ([count (length (selection->ranges sel))])
         (if (= count 1)
-            " 1 sel "
-            (string-append " "
+            "1 sel"
+            (string-append ""
                            (number->string (+ 1 (selection->primary-index sel)))
                            "/"
                            (number->string count)
-                           " sels ")))))
+                           " sels")))))
 
 (define (moka-primary-selection-length-content)
   (define sel (with-handler (lambda (_) #f) (current-selection-object)))
@@ -549,6 +684,30 @@
         moka-spacer-content
         'separator
         moka-separator-content
+        'left-sep
+        moka-left-sep-content
+        'right-sep
+        moka-right-sep-content
+        'full-left-sep
+        moka-full-left-sep-content
+        'full-right-sep
+        moka-full-right-sep-content
+        'cond-space
+        moka-cond-space-content
+        'cond-sep
+        moka-cond-sep-content
+        'cond-left-sep
+        moka-cond-left-sep-content
+        'cond-right-sep
+        moka-cond-right-sep-content
+        'cond-full-left-sep
+        moka-cond-full-left-sep-content
+        'cond-full-right-sep
+        moka-cond-full-right-sep-content
+        'hardcoded-garbage
+        moka-full-right-sep-content
+        'hardcoded-right-arrow
+        moka-hardcoded-right-arrow-garbage
         'file-absolute-path
         moka-file-absolute-path-content
         'file-base-name
@@ -595,7 +754,8 @@
 (define (moka-segment-width segment)
   (moka-styled-width (moka-content-fragments segment)
                      (moka-segment-bg segment)
-                     (moka-segment-bubble? segment)))
+                     (moka-segment-bubble? segment)
+                     (moka-segment-pad? segment)))
 
 (define (moka-sections-for align)
   (filter (lambda (sec) (equal? (MokaSection-align sec) align)) *moka-sections*))
@@ -631,6 +791,7 @@
                      (moka-content-fragments segment)
                      bg
                      (moka-segment-bubble? segment)
+                     (moka-segment-pad? segment)
                      (moka-segment-fallback-fg segment)
                      (moka-segment-colored-icons? segment bg)
                      base-style))
@@ -887,7 +1048,8 @@
                   [fragments (moka-bufferline-doc-fragments doc-id)]
                   [tab-bg (moka-bufferline-tab-bg style)]
                   [tab-bubble? (moka-bufferline-tab-bubble? style)]
-                  [tab-width (moka-styled-width fragments tab-bg tab-bubble?)]
+                  [tab-pad? #t] ;; TODO: make a function for this?
+                  [tab-width (moka-styled-width fragments tab-bg tab-bubble? tab-pad?)]
                   [start-x cx])
              ;; tabs stop at the sidebar edge like the rest of the bar
              (if (> (+ cx tab-width) (+ x0 bw))
@@ -898,6 +1060,7 @@
                                                  fragments
                                                  tab-bg
                                                  tab-bubble?
+                                                 tab-pad?
                                                  (moka-bufferline-tab-fg style)
                                                  (moka-bufferline-tab-colored-icons? tab-bg)
                                                  base-style)])
