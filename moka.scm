@@ -154,7 +154,8 @@
 (define hardcoded-garbage-color "#414868")
 (define (hardcoded-garbage-bg)
   (define git-branch-out (moka-git-branch-content))
-  (if (or (equal? git-branch-out "")) #f hardcoded-garbage-color))
+  (define diagnostic-out (moka-diagnostics-content))
+  (if (and (equal? git-branch-out "") (equal? diagnostic-out "")) #f hardcoded-garbage-color))
 
 ;; 'mode prefers #:mode-colors, then theme colors, then the fallback hash
 (define (moka-default-bg content)
