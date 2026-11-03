@@ -8,6 +8,7 @@
 (require-builtin helix/core/text as text.)
 
 (provide moka-segment
+         moka-relpath
          moka-section
          moka-configure!
          moka-enable!
@@ -451,7 +452,16 @@
   (if (and (>= (string-length path) (string-length prefix))
            (equal? (substring path 0 (string-length prefix)) prefix))
       (substring path (string-length prefix) (string-length path))
-      path))
+      (moka-relpath-climb (parent-name prefix) path)))
+
+(define (moka-relpath-climb prefix path)
+  (if (or (equal? prefix "") (equal? prefix "/"))
+      path
+      (if (and (>= (string-length path) (string-length prefix))
+               (equal? (substring path 0 (string-length prefix)) prefix))
+          (string-append ".."
+                         (substring path (string-length prefix) (string-length path)))
+                         (moka-relpath-climb (parent-name prefix) path))))
 
 (define (moka-current-git-status path)
   (and path (hash-try-get *moka-git-status-map* (moka-relpath path))))
@@ -462,6 +472,7 @@
 ;; icon/status/name keep their own color
 (define (moka-file-content)
   (define path (moka-current-path))
+  (define rel-path (moka-relpath path))
   (if (not path)
       ""
       (let* ([name (file-name path)]
@@ -473,7 +484,8 @@
                                       (list (cons (glyph-git-icon status) (glyph-git-color status))
                                             (cons " " #f)))
                               base)]
-             [with-name (append with-status (list (cons name #f)))])
+             ; [with-name (append with-status (list (cons name #f)))])
+             [with-name (append with-status (list (cons rel-path #f)))])
         (if (moka-current-dirty?)
             (append with-name (list (cons " " #f) (cons "*" (hash-try-get *moka-colors* 'dirty))))
             with-name))))
