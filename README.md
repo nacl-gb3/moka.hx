@@ -1,8 +1,12 @@
-# moka.hx
+# moka-tn.hx
 
 A fully configurable statusline and bufferline for [Helix](https://github.com/helix-editor/helix/).
 
-Sections, segments, colors, shapes, spacing — all defined from `init.scm`, nothing hardcoded.
+- with some configuration being jerryrigged to emulate the Tokyo Night Lualine configuration
+- includes example configuration that some of the code was jerryrigged for to begin with
+
+Sections, segments, colors, shapes, spacing — all defined from `init.scm`, ~~nothing hardcoded~~
+most important things not hardcoded.
 
 ![Black Metal Bathory](.github/assets/black-metal-bathory.png)
 
@@ -15,13 +19,13 @@ Sections, segments, colors, shapes, spacing — all defined from `init.scm`, not
 **2. Install moka.hx via forge:**
 
 ```sh
-forge pkg install --git https://github.com/Ra77a3l3-jar/moka.hx.git
+forge pkg install --git https://github.com/nacl-gb3/moka-tn.hx.git
 ```
 
 **3. Load the plugin** by adding this to your `init.scm`:
 
 ```scheme
-(require "moka/moka.scm")
+(require "moka-tn/moka.scm")
 
 (moka-configure!
  #:sections
@@ -32,20 +36,38 @@ forge pkg install --git https://github.com/Ra77a3l3-jar/moka.hx.git
 (moka-enable!)
 ```
 
+- To use the custom configurations, you can use the following code snippet in your `init.scm` file
+
+```scheme
+(require "moka-tn/moka-tn.scm")
+
+(define moka-bubble-set #t)
+(define moka-bl-icons #t)
+(cond
+  [(equal? moka-bubble-set 'angled) (moka-tn-angled)] ;; angled version
+  [moka-bubble-set (moka-tn-round)] ;; bubble version
+  [else (moka-tn)] ;; default, slightly jerryrigged version
+)
+(moka-enable!)
+(moka-bl-tn moka-bubble-set moka-bl-icons)
+(moka-bufferline-enable!)
+
+```
+
 `(moka-disable!)` restores Helix's default statusline.
 
 ---
 
 ## Usage
 
-| Segment | Shows |
-|---|---|
-| `'mode` | `NOR` / `INS` / `SEL`, colored from the theme |
-| `'file` | File icon + git status + name |
-| `'git-branch` | Current branch |
-| `'lsp` | Active LSP client name(s) |
-| `'position` | `line:column` |
-| `'spacer` / `'separator` | Blank space / `\|` |
+| Segment                  | Shows                                         |
+| ------------------------ | --------------------------------------------- |
+| `'mode`                  | `NOR` / `INS` / `SEL`, colored from the theme |
+| `'file`                  | File icon + git status + name                 |
+| `'git-branch`            | Current branch                                |
+| `'lsp`                   | Active LSP client name(s)                     |
+| `'position`              | `line:column`                                 |
+| `'spacer` / `'separator` | Blank space / `\|`                            |
 
 Each segment takes `#:fg`, `#:bg`, `#:bubble?` (`#t` round, `'angled` sharp, `#f` flat block), and `#:gap` (spacing to the next one, `0` = touching).
 
