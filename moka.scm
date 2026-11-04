@@ -4,7 +4,7 @@
 (require "helix/editor.scm")
 (require "helix/static.scm")
 (require "helix/commands.scm")
-(require "../deps/glyph.hx/glyph.scm")
+(require "glyph.hx/glyph.scm")
 (require-builtin helix/core/text as text.)
 
 (provide moka-segment
