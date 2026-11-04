@@ -8,7 +8,6 @@
 (require-builtin helix/core/text as text.)
 
 (provide moka-segment
-         moka-relpath
          moka-section
          moka-configure!
          moka-enable!
@@ -447,24 +446,39 @@
         (set! *moka-git-status-map* (hash))))
   (redraw))
 
-(define (moka-relpath path)
+(define (moka-relpath path max-depth)
   (define prefix (string-append (helix-find-workspace) (path-separator)))
   (if (and (>= (string-length path) (string-length prefix))
            (equal? (substring path 0 (string-length prefix)) prefix))
       (substring path (string-length prefix) (string-length path))
-      (moka-relpath-climb (parent-name prefix) path)))
+      (if (>= max-depth 0)
+          (moka-relpath-climb (parent-name prefix) path ".." 1 max-depth)
+          path)))
 
-(define (moka-relpath-climb prefix path)
-  (if (or (equal? prefix "") (equal? prefix "/"))
-      path
-      (if (and (>= (string-length path) (string-length prefix))
-               (equal? (substring path 0 (string-length prefix)) prefix))
-          (string-append ".."
-                         (substring path (string-length prefix) (string-length path)))
-                         (moka-relpath-climb (parent-name prefix) path))))
+(define (moka-relpath-climb prefix path up up-count max-depth)
+  (define home (env-var "HOME"))
+  (cond
+    [(and (equal? prefix home) (starts-with? path home))
+     (string-append "~" (substring path (string-length prefix) (string-length path)))]
+    [(or (and (> max-depth 0) (>= up-count max-depth))
+         (equal? prefix "")
+         (equal? prefix "/")
+         (equal? prefix "/home"))
+     (if (starts-with? path home)
+         (string-append "~" (substring path (string-length home) (string-length path)))
+         path)]
+    [(and (>= (string-length path) (string-length prefix))
+          (equal? (substring path 0 (string-length prefix)) prefix))
+     (string-append up (substring path (string-length prefix) (string-length path)))]
+    [else
+     (moka-relpath-climb (parent-name prefix)
+                         path
+                         (string-append "../" up)
+                         (+ up-count 1)
+                         max-depth)]))
 
 (define (moka-current-git-status path)
-  (and path (hash-try-get *moka-git-status-map* (moka-relpath path))))
+  (and path (hash-try-get *moka-git-status-map* (moka-relpath path -1))))
 
 (define (moka-mode-content)
   (moka-mode-label))
@@ -472,7 +486,7 @@
 ;; icon/status/name keep their own color
 (define (moka-file-content)
   (define path (moka-current-path))
-  (define rel-path (moka-relpath path))
+  (define rel-path (moka-relpath path 3))
   (if (not path)
       ""
       (let* ([name (file-name path)]
